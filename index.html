@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <!-- =========================================================
+         LEARNING SECTION 1: PAGE SETUP
+         - Defines document metadata and connects CSS
+         ========================================================= -->
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Quick Kanban</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+
+  <body>
+    <!-- =========================================================
+         LEARNING SECTION 2: APP HEADER
+         - High-level title + purpose text
+         ========================================================= -->
+    <header class="app-header">
+      <h1>Quick Kanban</h1>
+      <p>Drag tasks between columns to track project flow.</p>
+    </header>
+
+    <!-- =========================================================
+         LEARNING SECTION 3: TASK CREATION FORM
+         - User enters title and description
+         - JavaScript listens for form submit
+         ========================================================= -->
+    <section class="new-task-panel">
+      <h2>Add Task</h2>
+      <form id="task-form">
+        <div class="form-row">
+          <label for="task-title">Title</label>
+          <input id="task-title" name="title" type="text" maxlength="80" required />
+        </div>
+
+        <div class="form-row">
+          <label for="task-desc">Description</label>
+          <textarea id="task-desc" name="description" rows="3" maxlength="300"></textarea>
+        </div>
+
+        <button type="submit">Add to To Do</button>
+      </form>
+    </section>
+
+    <!-- =========================================================
+         LEARNING SECTION 4: BOARD STRUCTURE
+         - Four columns
+         - Each drop-zone receives cards by drag/drop
+         - data-column-id is used by JavaScript logic
+         ========================================================= -->
+    <main class="board" id="board">
+      <section class="column" data-column-id="todo">
+        <h3>To Do</h3>
+        <div class="drop-zone" data-column-id="todo"></div>
+      </section>
+
+      <section class="column" data-column-id="in-progress">
+        <h3>In Progress</h3>
+        <div class="drop-zone" data-column-id="in-progress"></div>
+      </section>
+
+      <section class="column" data-column-id="done">
+        <h3>Done</h3>
+        <div class="drop-zone" data-column-id="done"></div>
+      </section>
+
+      <section class="column dropped-column" data-column-id="dropped">
+        <h3>Dropped / Deleted</h3>
+        <div class="drop-zone" data-column-id="dropped"></div>
+      </section>
+    </main>
+
+    <!-- =========================================================
+         LEARNING SECTION 5: CARD TEMPLATE
+         - A reusable blueprint for a task card
+         - JS clones this template for each task
+         ========================================================= -->
+    <template id="task-card-template">
+      <article class="task-card" draggable="true">
+        <div class="task-card-body">
+          <h4 class="task-title"></h4>
+          <p class="task-description"></p>
+        </div>
+      </article>
+    </template>
+
+    <!-- =========================================================
+         LEARNING SECTION 6: CONNECT APP LOGIC
+         ========================================================= -->
+    <script src="script.js"></script>
+  </body>
+</html>
