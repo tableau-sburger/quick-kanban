@@ -3,7 +3,6 @@
   <head>
     <!-- =========================================================
          LEARNING SECTION 1: PAGE SETUP
-         - Defines document metadata and connects CSS
          ========================================================= -->
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -11,10 +10,9 @@
     <link rel="stylesheet" href="style.css" />
   </head>
 
-  <body>
+  <body data-theme="dark">
     <!-- =========================================================
          LEARNING SECTION 2: APP HEADER
-         - High-level title + purpose text
          ========================================================= -->
     <header class="app-header">
       <h1>Quick Kanban</h1>
@@ -22,9 +20,30 @@
     </header>
 
     <!-- =========================================================
-         LEARNING SECTION 3: TASK CREATION FORM
-         - User enters title and description
-         - JavaScript listens for form submit
+         LEARNING SECTION 3: BOARD MANAGEMENT
+         ========================================================= -->
+    <section class="board-manager">
+      <h2>Boards</h2>
+      <div class="board-controls">
+        <label for="board-select">Current Board</label>
+        <select id="board-select"></select>
+
+        <button id="new-board-btn" type="button">New Board</button>
+        <button id="rename-board-btn" type="button">Rename Board</button>
+        <button id="delete-board-btn" type="button">Delete Board</button>
+
+        <label for="board-theme-select">Theme</label>
+        <select id="board-theme-select">
+          <option value="dark">Dark</option>
+          <option value="ocean">Ocean</option>
+          <option value="forest">Forest</option>
+          <option value="sunset">Sunset</option>
+        </select>
+      </div>
+    </section>
+
+    <!-- =========================================================
+         LEARNING SECTION 4: TASK CREATION FORM
          ========================================================= -->
     <section class="new-task-panel">
       <h2>Add Task</h2>
@@ -36,7 +55,18 @@
 
         <div class="form-row">
           <label for="task-desc">Description</label>
-          <textarea id="task-desc" name="description" rows="3" maxlength="300"></textarea>
+          <textarea id="task-desc" name="description" rows="3" maxlength="500"></textarea>
+          <small id="task-desc-counter" class="char-counter">500 characters remaining</small>
+        </div>
+
+        <div class="form-row">
+          <label for="task-due-date">Due Date (optional)</label>
+          <div class="date-input-wrap">
+            <input id="task-due-date" name="dueDate" type="date" />
+            <button id="task-due-date-open" type="button" class="date-open-btn" aria-label="Open calendar">
+              Calendar
+            </button>
+          </div>
         </div>
 
         <button type="submit">Add to To Do</button>
@@ -44,10 +74,7 @@
     </section>
 
     <!-- =========================================================
-         LEARNING SECTION 4: BOARD STRUCTURE
-         - Four columns
-         - Each drop-zone receives cards by drag/drop
-         - data-column-id is used by JavaScript logic
+         LEARNING SECTION 5: BOARD COLUMNS
          ========================================================= -->
     <main class="board" id="board">
       <section class="column" data-column-id="todo">
@@ -72,22 +99,20 @@
     </main>
 
     <!-- =========================================================
-         LEARNING SECTION 5: CARD TEMPLATE
-         - A reusable blueprint for a task card
-         - JS clones this template for each task
+         LEARNING SECTION 6: CARD TEMPLATE
          ========================================================= -->
     <template id="task-card-template">
       <article class="task-card" draggable="true">
         <div class="task-card-body">
+          <div class="task-card-top-row">
+            <span class="task-due-date is-empty"></span>
+          </div>
           <h4 class="task-title"></h4>
           <p class="task-description"></p>
         </div>
       </article>
     </template>
 
-    <!-- =========================================================
-         LEARNING SECTION 6: CONNECT APP LOGIC
-         ========================================================= -->
     <script src="script.js"></script>
   </body>
 </html>

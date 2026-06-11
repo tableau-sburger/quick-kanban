@@ -1,183 +1,403 @@
 /* =========================================================
-   QUICK KANBAN - TEACHING EDITION V2
-   =========================================================
-   This file is organized into learning sections:
-   1) App configuration + state
-   2) Startup sequence
-   3) Form handling (add tasks)
-   4) Rendering (show tasks on screen)
-   5) Drag and drop lifecycle
-   6) Data movement + ordering logic
-   7) Persistence (localStorage)
-   8) First-run sample data
+   QUICK KANBAN - TEACHING EDITION V4 (MULTI-BOARD + DUE DATES)
    ========================================================= */
 
-/* =========================================================
-   LEARNING SECTION 1: APP CONFIGURATION + STATE
-   ========================================================= */
-
-/* localStorage key used to save/reload task data */
-const STORAGE_KEY = "quick-kanban-data-v1";
-
-/* Official column IDs used throughout the app */
+const STORAGE_KEY = "quick-kanban-data-v4";
 const COLUMNS = ["todo", "in-progress", "done", "dropped"];
+const THEMES = ["dark", "ocean", "forest", "sunset"];
+const DESCRIPTION_MAX = 500;
 
-/*
-  Main in-memory app state.
-  Think of this as the "single source of truth".
-*/
 const state = {
-  tasks: []
+  boards: [],
+  activeBoardId: null
 };
 
-/* Cache important DOM elements so we can reuse them */
+let activeEditTaskId = null;
+
 const taskForm = document.getElementById("task-form");
 const titleInput = document.getElementById("task-title");
 const descInput = document.getElementById("task-desc");
+const descCounter = document.getElementById("task-desc-counter");
+const dueDateInput = document.getElementById("task-due-date");
+const dueDateOpenBtn = document.getElementById("task-due-date-open");
 const cardTemplate = document.getElementById("task-card-template");
 
-/* =========================================================
-   LEARNING SECTION 2: STARTUP SEQUENCE
-   ========================================================= */
+const boardSelect = document.getElementById("board-select");
+const newBoardBtn = document.getElementById("new-board-btn");
+const renameBoardBtn = document.getElementById("rename-board-btn");
+const deleteBoardBtn = document.getElementById("delete-board-btn");
+const boardThemeSelect = document.getElementById("board-theme-select");
 
-/* Run initialization once when script loads */
+/* =========================================================
+   Startup
+   ========================================================= */
 init();
 
 function init() {
-  // Step 1: Try loading saved tasks
   loadState();
-
-  // Step 2: If no saved tasks exist, seed sample tasks
   seedIfEmpty();
 
-  // Step 3: Draw the board from current state
-  renderAllColumns();
-
-  // Step 4: Turn on user interactions
+  wireBoardControls();
   wireForm();
   wireDropZones();
+  wireDescriptionCounter();
+  wireDatePickers();
+
+  renderBoardSelector();
+  applyActiveBoardTheme();
+  syncThemeDropdownToActiveBoard();
+  renderAllColumns();
 }
 
 /* =========================================================
-   LEARNING SECTION 3: FORM HANDLING (ADD TASKS)
+   Board management
    ========================================================= */
+function getActiveBoard() {
+  return state.boards.find((b) => b.id === state.activeBoardId) || null;
+}
 
+function wireBoardControls() {
+  boardSelect.addEventListener("change", () => {
+    state.activeBoardId = boardSelect.value;
+    applyActiveBoardTheme();
+    syncThemeDropdownToActiveBoard();
+    saveState();
+    renderAllColumns();
+  });
+
+  newBoardBtn.addEventListener("click", () => {
+    const name = prompt("Enter a name for the new board:");
+    if (!name || !name.trim()) return;
+
+    const currentBoard = getActiveBoard();
+
+    const board = {
+      id: crypto.randomUUID(),
+      name: name.trim(),
+      theme: currentBoard?.theme || "dark",
+      tasks: []
+    };
+
+    state.boards.push(board);
+    state.activeBoardId = board.id;
+
+    renderBoardSelector();
+    applyActiveBoardTheme();
+    syncThemeDropdownToActiveBoard();
+    saveState();
+    renderAllColumns();
+  });
+
+  renameBoardBtn.addEventListener("click", () => {
+    const board = getActiveBoard();
+    if (!board) return;
+
+    const nextName = prompt("Enter a new board name:", board.name);
+    if (!nextName || !nextName.trim()) return;
+
+    board.name = nextName.trim();
+    renderBoardSelector();
+    saveState();
+  });
+
+  deleteBoardBtn.addEventListener("click", () => {
+    if (state.boards.length <= 1) {
+      alert("You must keep at least one board.");
+      return;
+    }
+
+    const board = getActiveBoard();
+    if (!board) return;
+
+    const confirmed = confirm(`Delete board "${board.name}"?`);
+    if (!confirmed) return;
+
+    state.boards = state.boards.filter((b) => b.id !== board.id);
+    state.activeBoardId = state.boards[0].id;
+
+    renderBoardSelector();
+    applyActiveBoardTheme();
+    syncThemeDropdownToActiveBoard();
+    saveState();
+    renderAllColumns();
+  });
+
+  boardThemeSelect.addEventListener("change", () => {
+    const board = getActiveBoard();
+    if (!board) return;
+
+    board.theme = THEMES.includes(boardThemeSelect.value)
+      ? boardThemeSelect.value
+      : "dark";
+
+    applyActiveBoardTheme();
+    saveState();
+  });
+}
+
+function renderBoardSelector() {
+  boardSelect.innerHTML = "";
+
+  state.boards.forEach((board) => {
+    const option = document.createElement("option");
+    option.value = board.id;
+    option.textContent = board.name;
+    option.selected = board.id === state.activeBoardId;
+    boardSelect.appendChild(option);
+  });
+}
+
+function applyActiveBoardTheme() {
+  const board = getActiveBoard();
+  const theme = THEMES.includes(board?.theme) ? board.theme : "dark";
+  document.body.dataset.theme = theme;
+}
+
+function syncThemeDropdownToActiveBoard() {
+  const board = getActiveBoard();
+  boardThemeSelect.value = THEMES.includes(board?.theme) ? board.theme : "dark";
+}
+
+/* =========================================================
+   Task creation
+   ========================================================= */
 function wireForm() {
   taskForm.addEventListener("submit", (event) => {
-    // Prevent browser default behavior (page reload)
     event.preventDefault();
 
-    // Read and clean user input
     const title = titleInput.value.trim();
     const description = descInput.value.trim();
+    const dueDate = dueDateInput.value; // "YYYY-MM-DD" or ""
 
-    // Do nothing if title is empty
     if (!title) return;
 
-    // Add a new task object to state
-    state.tasks.push({
-      id: crypto.randomUUID(), // Unique identifier for drag/drop and updates
+    const board = getActiveBoard();
+    if (!board) return;
+
+    board.tasks.push({
+      id: crypto.randomUUID(),
       title,
       description,
-      columnId: "todo", // New tasks always start in To Do
+      dueDate: dueDate || "",
+      columnId: "todo",
       createdAt: Date.now()
     });
 
-    // Save changes + redraw board
     saveState();
     renderAllColumns();
 
-    // Reset form for next task entry
     taskForm.reset();
+    updateDescriptionCounter(descInput, descCounter);
     titleInput.focus();
   });
 }
 
+function wireDescriptionCounter() {
+  if (!descInput || !descCounter) return;
+
+  updateDescriptionCounter(descInput, descCounter);
+  descInput.addEventListener("input", () => {
+    updateDescriptionCounter(descInput, descCounter);
+  });
+}
+
+function wireDatePickers() {
+  if (!dueDateInput || !dueDateOpenBtn) return;
+  dueDateOpenBtn.addEventListener("click", () => {
+    openDatePicker(dueDateInput);
+  });
+}
+
 /* =========================================================
-   LEARNING SECTION 4: RENDERING (SHOW TASKS)
+   Rendering
    ========================================================= */
-
 function renderAllColumns() {
-  COLUMNS.forEach((columnId) => {
-    // Find this column's drop zone
-    const zone = document.querySelector(`.drop-zone[data-column-id="${columnId}"]`);
+  const board = getActiveBoard();
+  const tasks = board ? board.tasks : [];
 
-    // Clear old cards from that zone
+  COLUMNS.forEach((columnId) => {
+    const zone = document.querySelector(`.drop-zone[data-column-id="${columnId}"]`);
     zone.innerHTML = "";
 
-    // Get tasks belonging to this column
-    const tasksInColumn = state.tasks.filter((task) => task.columnId === columnId);
-
-    // Create and append card DOM nodes
-    tasksInColumn.forEach((task) => {
-      const card = createCard(task);
-      zone.appendChild(card);
-    });
+    tasks
+      .filter((task) => task.columnId === columnId)
+      .forEach((task) => zone.appendChild(createCard(task)));
   });
 }
 
 function createCard(task) {
-  // Clone one new card from template
   const cardNode = cardTemplate.content.firstElementChild.cloneNode(true);
 
-  // Store IDs in data-attributes for later lookups
   cardNode.dataset.taskId = task.id;
   cardNode.dataset.columnId = task.columnId;
 
-  // Fill card text
-  cardNode.querySelector(".task-title").textContent = task.title;
-  cardNode.querySelector(".task-description").textContent =
-    task.description || "No description";
+  const titleNode = cardNode.querySelector(".task-title");
+  const descNode = cardNode.querySelector(".task-description");
+  const dueDateNode = cardNode.querySelector(".task-due-date");
 
-  // Drag lifecycle: start
-  cardNode.addEventListener("dragstart", () => {
+  titleNode.textContent = task.title;
+  descNode.textContent = task.description || "No description";
+
+  if (task.dueDate) {
+    dueDateNode.textContent = `Due: ${formatDueDate(task.dueDate)}`;
+    dueDateNode.classList.remove("is-empty");
+
+    if (isOverdue(task.dueDate, task.columnId)) {
+      dueDateNode.classList.add("is-overdue");
+    } else {
+      dueDateNode.classList.remove("is-overdue");
+    }
+  } else {
+    dueDateNode.textContent = "";
+    dueDateNode.classList.add("is-empty");
+    dueDateNode.classList.remove("is-overdue");
+  }
+
+  cardNode.addEventListener("dragstart", (event) => {
+    if (cardNode.classList.contains("is-editing")) {
+      event.preventDefault();
+      return;
+    }
     cardNode.classList.add("dragging");
   });
 
-  // Drag lifecycle: end
   cardNode.addEventListener("dragend", () => {
     cardNode.classList.remove("dragging");
-
-    // Remove visual highlights from all zones
     document.querySelectorAll(".drop-zone").forEach((z) => z.classList.remove("drag-over"));
+  });
+
+  cardNode.addEventListener("dblclick", (event) => {
+    event.preventDefault();
+    startInlineCardEdit(cardNode, task);
   });
 
   return cardNode;
 }
 
-/* =========================================================
-   LEARNING SECTION 5: DRAG AND DROP LIFECYCLE
-   ========================================================= */
+function startInlineCardEdit(cardNode, task) {
+  if (activeEditTaskId && activeEditTaskId !== task.id) return;
+  if (cardNode.classList.contains("is-editing")) return;
 
+  activeEditTaskId = task.id;
+  cardNode.classList.add("is-editing");
+  cardNode.setAttribute("draggable", "false");
+
+  const body = cardNode.querySelector(".task-card-body");
+  if (!body) return;
+
+  const safeTitle = escapeHtml(task.title || "");
+  const safeDescription = escapeHtml(task.description || "");
+  const safeDueDate = escapeHtml(task.dueDate || "");
+
+  body.innerHTML = `
+    <form class="task-edit-form">
+      <label>
+        Title
+        <input name="title" type="text" maxlength="80" value="${safeTitle}" required />
+      </label>
+
+      <label>
+        Description
+        <textarea name="description" rows="3" maxlength="500">${safeDescription}</textarea>
+      </label>
+      <div class="task-edit-char-counter">${DESCRIPTION_MAX - safeDescription.length} characters remaining</div>
+
+      <label>
+        Due Date (optional)
+        <div class="task-edit-date-wrap">
+          <input name="dueDate" type="date" value="${safeDueDate}" />
+          <button type="button" class="date-open-btn task-edit-date-open" aria-label="Open calendar">Calendar</button>
+        </div>
+      </label>
+
+      <div class="task-edit-actions">
+        <button type="button" class="task-edit-delete">Delete Card</button>
+        <button type="button" class="task-edit-cancel">Cancel</button>
+        <button type="submit" class="task-edit-save">Save</button>
+      </div>
+    </form>
+  `;
+
+  const form = body.querySelector(".task-edit-form");
+  const titleField = form.querySelector('input[name="title"]');
+  const descriptionField = form.querySelector('textarea[name="description"]');
+  const dueDateField = form.querySelector('input[name="dueDate"]');
+  const inlineCounter = form.querySelector(".task-edit-char-counter");
+  const inlineDateOpenButton = form.querySelector(".task-edit-date-open");
+  const deleteButton = form.querySelector(".task-edit-delete");
+  const cancelButton = form.querySelector(".task-edit-cancel");
+
+  titleField.focus();
+  titleField.select();
+  updateDescriptionCounter(descriptionField, inlineCounter);
+
+  descriptionField.addEventListener("input", () => {
+    updateDescriptionCounter(descriptionField, inlineCounter);
+  });
+
+  inlineDateOpenButton.addEventListener("click", () => {
+    openDatePicker(dueDateField);
+  });
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+
+    const nextTitle = form.title.value.trim();
+    const nextDescription = form.description.value.trim();
+    const nextDueDate = form.dueDate.value || "";
+
+    if (!nextTitle) {
+      alert("Title is required.");
+      return;
+    }
+
+    task.title = nextTitle;
+    task.description = nextDescription;
+    task.dueDate = nextDueDate;
+
+    activeEditTaskId = null;
+    saveState();
+    renderAllColumns();
+  });
+
+  cancelButton.addEventListener("click", () => {
+    activeEditTaskId = null;
+    renderAllColumns();
+  });
+
+  deleteButton.addEventListener("click", () => {
+    task.columnId = "dropped";
+    activeEditTaskId = null;
+    saveState();
+    renderAllColumns();
+  });
+
+  form.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      activeEditTaskId = null;
+      renderAllColumns();
+    }
+  });
+}
+
+/* =========================================================
+   Drag + drop lifecycle
+   ========================================================= */
 function wireDropZones() {
   const zones = document.querySelectorAll(".drop-zone");
 
   zones.forEach((zone) => {
     zone.addEventListener("dragover", (event) => {
-      /*
-        Must prevent default so dropping is allowed.
-        Without this, drop events may not fire.
-      */
       event.preventDefault();
-
-      // Visual highlight to show active drop target
       zone.classList.add("drag-over");
 
-      // Find currently dragged card
       const draggedCard = document.querySelector(".task-card.dragging");
       if (!draggedCard) return;
 
-      /*
-        Find insertion point based on cursor vertical position
-        so user can reorder cards inside the zone.
-      */
       const afterElement = getInsertAfterElement(zone, event.clientY);
-
-      if (!afterElement) {
-        zone.appendChild(draggedCard); // put at end
-      } else {
-        zone.insertBefore(draggedCard, afterElement); // insert before target
-      }
+      if (!afterElement) zone.appendChild(draggedCard);
+      else zone.insertBefore(draggedCard, afterElement);
     });
 
     zone.addEventListener("dragleave", () => {
@@ -188,81 +408,62 @@ function wireDropZones() {
       event.preventDefault();
       zone.classList.remove("drag-over");
 
-      const card = document.querySelector(".task-card.dragging");
-      if (!card) return;
+      const draggedCard = document.querySelector(".task-card.dragging");
+      if (!draggedCard) return;
 
-      const taskId = card.dataset.taskId;
+      const taskId = draggedCard.dataset.taskId;
       const newColumnId = zone.dataset.columnId;
 
-      // Read final order from DOM after drop preview
       const reorderedTaskIds = Array.from(zone.querySelectorAll(".task-card")).map(
         (el) => el.dataset.taskId
       );
 
-      // Commit this move/order into real app state
       moveTask(taskId, newColumnId, reorderedTaskIds);
     });
   });
 }
 
 /* =========================================================
-   LEARNING SECTION 6: DATA MOVEMENT + ORDERING LOGIC
+   Task move + reorder
    ========================================================= */
-
 function moveTask(taskId, newColumnId, reorderedTaskIdsInTarget) {
-  // Find moved task object in current state
-  const task = state.tasks.find((t) => t.id === taskId);
+  const board = getActiveBoard();
+  if (!board) return;
+
+  const task = board.tasks.find((t) => t.id === taskId);
   if (!task) return;
 
-  // Update task's column (this is the actual move)
   task.columnId = newColumnId;
 
-  /*
-    Build lookup map for tasks in target column:
-    key = task.id, value = full task object
-  */
   const targetTasksById = new Map(
-    state.tasks
+    board.tasks
       .filter((t) => t.columnId === newColumnId)
       .map((t) => [t.id, t])
   );
 
-  // Reconstruct target column order exactly as seen in DOM
   const reorderedTargetTasks = reorderedTaskIdsInTarget
     .map((id) => targetTasksById.get(id))
     .filter(Boolean);
 
-  /*
-    Rebuild global state array column by column.
-    Why rebuild? It keeps ordering stable and predictable.
-  */
   const rebuilt = [];
-
   COLUMNS.forEach((columnId) => {
     if (columnId === newColumnId) {
       rebuilt.push(...reorderedTargetTasks);
     } else {
-      rebuilt.push(...state.tasks.filter((t) => t.columnId === columnId));
+      rebuilt.push(...board.tasks.filter((t) => t.columnId === columnId));
     }
   });
 
-  // Safety fallback: include any task missed during rebuild
   const seen = new Set(rebuilt.map((t) => t.id));
-  state.tasks.forEach((t) => {
+  board.tasks.forEach((t) => {
     if (!seen.has(t.id)) rebuilt.push(t);
   });
 
-  // Replace old state with rebuilt state, then persist + render
-  state.tasks = rebuilt;
+  board.tasks = rebuilt;
   saveState();
   renderAllColumns();
 }
 
-/*
-  Helper function:
-  Given a drop zone and cursor Y coordinate, decide
-  which existing card we should insert before.
-*/
 function getInsertAfterElement(zone, y) {
   const cards = [...zone.querySelectorAll(".task-card:not(.dragging)")];
 
@@ -271,7 +472,6 @@ function getInsertAfterElement(zone, y) {
       const box = element.getBoundingClientRect();
       const offset = y - box.top - box.height / 2;
 
-      // We want the nearest card above cursor centerline
       if (offset < 0 && offset > closest.offset) {
         return { offset, element };
       }
@@ -283,11 +483,63 @@ function getInsertAfterElement(zone, y) {
 }
 
 /* =========================================================
-   LEARNING SECTION 7: PERSISTENCE (LOCAL STORAGE)
+   Helpers for due date display/logic
    ========================================================= */
+function formatDueDate(isoDate) {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  if (!y || !m || !d) return isoDate;
 
+  const dt = new Date(y, m - 1, d);
+  return dt.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  });
+}
+
+function isOverdue(isoDate, columnId) {
+  // Completed tasks are not shown as overdue
+  if (columnId === "done") return false;
+
+  const [y, m, d] = isoDate.split("-").map(Number);
+  if (!y || !m || !d) return false;
+
+  const due = new Date(y, m - 1, d);
+  due.setHours(23, 59, 59, 999);
+
+  return new Date() > due;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function updateDescriptionCounter(inputEl, counterEl) {
+  if (!inputEl || !counterEl) return;
+  const remaining = DESCRIPTION_MAX - inputEl.value.length;
+  counterEl.textContent = `${remaining} characters remaining`;
+}
+
+function openDatePicker(inputEl) {
+  if (!inputEl) return;
+  if (typeof inputEl.showPicker === "function") {
+    inputEl.showPicker();
+    return;
+  }
+  inputEl.focus();
+  inputEl.click();
+}
+
+/* =========================================================
+   Persistence
+   ========================================================= */
 function saveState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state.tasks));
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
 function loadState() {
@@ -296,56 +548,87 @@ function loadState() {
     if (!raw) return;
 
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return;
+    if (!parsed || !Array.isArray(parsed.boards)) return;
 
-    /*
-      Basic validation so malformed data does not break app.
-      Only keep tasks with expected shape.
-    */
-    state.tasks = parsed.filter(
-      (task) =>
-        task &&
-        typeof task.id === "string" &&
-        typeof task.title === "string" &&
-        typeof task.description === "string" &&
-        COLUMNS.includes(task.columnId)
-    );
+    const validBoards = parsed.boards
+      .filter(
+        (b) =>
+          b &&
+          typeof b.id === "string" &&
+          typeof b.name === "string" &&
+          Array.isArray(b.tasks)
+      )
+      .map((b) => ({
+        id: b.id,
+        name: b.name,
+        theme: THEMES.includes(b.theme) ? b.theme : "dark",
+        tasks: b.tasks
+          .filter(
+            (t) =>
+              t &&
+              typeof t.id === "string" &&
+              typeof t.title === "string" &&
+              typeof t.description === "string" &&
+              (typeof t.dueDate === "string" || typeof t.dueDate === "undefined") &&
+              COLUMNS.includes(t.columnId)
+          )
+          .map((t) => ({
+            ...t,
+            dueDate: typeof t.dueDate === "string" ? t.dueDate : ""
+          }))
+      }));
+
+    if (validBoards.length === 0) return;
+
+    state.boards = validBoards;
+    state.activeBoardId = validBoards.some((b) => b.id === parsed.activeBoardId)
+      ? parsed.activeBoardId
+      : validBoards[0].id;
   } catch {
-    // If parsing fails, reset to empty state
-    state.tasks = [];
+    state.boards = [];
+    state.activeBoardId = null;
   }
 }
 
 /* =========================================================
-   LEARNING SECTION 8: FIRST-RUN SAMPLE DATA
+   Seed data for first run
    ========================================================= */
-
 function seedIfEmpty() {
-  if (state.tasks.length > 0) return;
+  if (state.boards.length > 0) return;
 
-  state.tasks = [
-    {
-      id: crypto.randomUUID(),
-      title: "Define project scope",
-      description: "Write MVP boundaries and success criteria.",
-      columnId: "todo",
-      createdAt: Date.now()
-    },
-    {
-      id: crypto.randomUUID(),
-      title: "Draft stakeholder list",
-      description: "Identify owners, approvers, and collaborators.",
-      columnId: "in-progress",
-      createdAt: Date.now()
-    },
-    {
-      id: crypto.randomUUID(),
-      title: "Set kickoff meeting",
-      description: "Invite team and align timeline.",
-      columnId: "done",
-      createdAt: Date.now()
-    }
-  ];
+  const firstBoard = {
+    id: crypto.randomUUID(),
+    name: "Main Board",
+    theme: "dark",
+    tasks: [
+      {
+        id: crypto.randomUUID(),
+        title: "Define project scope",
+        description: "Write MVP boundaries and success criteria.",
+        dueDate: "",
+        columnId: "todo",
+        createdAt: Date.now()
+      },
+      {
+        id: crypto.randomUUID(),
+        title: "Draft stakeholder list",
+        description: "Identify owners, approvers, and collaborators.",
+        dueDate: "",
+        columnId: "in-progress",
+        createdAt: Date.now()
+      },
+      {
+        id: crypto.randomUUID(),
+        title: "Set kickoff meeting",
+        description: "Invite team and align timeline.",
+        dueDate: "",
+        columnId: "done",
+        createdAt: Date.now()
+      }
+    ]
+  };
 
+  state.boards = [firstBoard];
+  state.activeBoardId = firstBoard.id;
   saveState();
 }
